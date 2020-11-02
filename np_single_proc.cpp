@@ -8,6 +8,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <sys/stat.h>
+#include <arpa/inet.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <dirent.h>
@@ -37,14 +38,15 @@ typedef struct w_node{
 
 struct cli_info{
     string name;
-    in_addr_t ip;
+    string ip;
     in_port_t port;
 };
 
-vector <string> exec_list;
 vector <w_node> p_list;
 map <int, int> socket_map;
-map <int, cli_info*> clinfo_map;
+map <int, int> uid_map;
+map <int, cli_info> clinfo_map;
+bool user[MAXUSERS] = {false};
 //vector <string> cmds;
 
 token_list *cmds;
@@ -85,54 +87,6 @@ void split(string s, char delim, token_list *l){
     l->length = n;
 }
 
-void update_execlist(string _path){
-    token_list paths;
-    split(_path, ':', &paths);
-    DIR *dir;
-    struct dirent *ent;
-    struct stat buf;
-    char cwd[PATH_MAX];
-
-    getcwd(cwd, sizeof(cwd));
-    exec_list.clear();
-    for(int i=0; i<paths.length; i++){
-        if((dir = opendir(paths.tok[i].c_str())) != NULL){
-            chdir(paths.tok[i].c_str());
-            while((ent = readdir(dir)) != NULL){
-                stat(ent->d_name, &buf);
-                if(buf.st_mode & S_IXUSR && !S_ISDIR(buf.st_mode))
-                    exec_list.push_back(ent->d_name);
-            }
-        }
-        closedir(dir);
-    }   
-    chdir(cwd);
-}
-
-bool handle_builtin(string input){
-    int i=0;
-    const string builtin_list[7] = {"setenv", "printenv", "exit", "who", "tell", "yell", "name"};
-    token_list params;
-    for(;i<7 && input.find(builtin_list[i])==string::npos; i++);
-
-    switch (i){
-    case 0:
-        split(input, ' ', &params);
-        setenv(params.tok[1].c_str(), params.tok[2].c_str(), 1);
-        update_execlist(params.tok[2]);
-        break;
-    case 1:
-        split(input, ' ', &params);
-        printf("%s\n",getenv(params.tok[1].c_str()));
-        break;
-    case 2:
-        break;
-    default:
-        return false;
-        break;
-    }
-    return true;    
-}
 inline bool is_numpipe(string cmd, size_t *pos){
     //pos : index of last '|' 
     for (int i=0; i<cmd.length(); i++)
@@ -194,13 +148,6 @@ int parse_cmd(string input){
     else return NORMAL;
 }
 
-inline bool is_vaild(string c){
-    for(int i = 0; i<exec_list.size(); i++)
-        if(c == exec_list[i])
-            return true;
-    return false;
-}
-
 const char **tkltocstr(token_list c){
     const char **argv;
     int i = 0;
@@ -228,18 +175,14 @@ void run(token_list cmd, int fd_in, int out, int err){
         dup2(out, STDERR_FILENO);
         close(out);
     }
-    
-    if(is_vaild(cmd.tok[0])){
-        const char **argv = tkltocstr(cmd);
-        execvp(argv[0], (char**)argv);
-        delete [] argv;
-        exit(errno);
-    }
-    else{
+    const char **argv = tkltocstr(cmd);
+    execvp(argv[0], (char**)argv);
+    if(errno == ENOENT){
         cerr << "Unknown command: [" << cmd.tok[0].c_str() << "].\n";
-        exit(0);
     }
+    exit(0);
 }
+
 int numpipe_parse(){
     int sum = 0;
     size_t pos1 = -1;
@@ -394,7 +337,7 @@ void reaper(int a){
         std::cerr << "reap success\n";
     }
 }
-int get_uid(bool user[]){
+inline int get_uid(){
     for(int i = 0; i<MAXUSERS; i++)
         if(!user[i]){
             user[i] = true;
@@ -402,27 +345,122 @@ int get_uid(bool user[]){
         }
     return -1;
 }
-void broadcast(string mes){
-    
+inline void broadcast(string m){
+    for(int i=0; i<MAXUSERS; i++){
+        if(user[i]){
+            send(socket_map[i+1], m.c_str(), m.length(), 0);
+        }
+    }
 }
-
+bool handle_builtin(token_list input, int uid){
+    int i=0;
+    const string builtin_list[7] = {"setenv", "printenv", "exit", 
+                              "who", "tell", "yell", "name"};
+    //token_list params;
+    //for(;i<7 && input.find(builtin_list[i])==string::npos; i++);
+    for(;i<7 && input.tok[0] != builtin_list[i]; i++);
+    switch(i){
+    case 0:
+        //split(input, ' ', &params);
+        //setenvparams.tok[1].c_str(), params.tok[2].c_str(), 1);
+        setenv(input.tok[1].c_str(), input.tok[2].c_str(), 1);
+        break;
+    case 1:
+        //split(input, ' ', &params);
+        //printf("%s\n",getenv(params.tok[1].c_str()));
+        printf("%s\n",getenv(input.tok[1].c_str()));
+        break;
+    case 2:{
+        string message = "*** User '' left. ***\n";
+        message.insert(10, clinfo_map[uid].name);
+        //may need clear clinfo_map[uid]
+        user[uid-1] = false;
+        close(socket_map[uid]);
+        //TODO : close user pipe to uid
+        broadcast(message);
+        break;
+    }
+    case 3:{
+        string message = "<ID>\t<nickname>\t<IP:port>\t<indicate me>\n";
+        if(send(socket_map[uid], message.c_str(), message.length(), 0) == -1)
+            cerr << strerror(errno) << endl;
+        message.clear();
+        for(int i=0; i<MAXUSERS; i++){
+            if(user[i]){
+                char str[50];
+                sprintf(str, "%d\t%s\t%s:%d", i+1, clinfo_map[i+1].name.c_str(), clinfo_map[i+1].ip.c_str(), clinfo_map[i+1].port);
+                message = str;
+                if(i+1 == uid) message += "\t<-me";
+                message += "\n";
+                send(socket_map[uid], message.c_str(), message.length(), 0);
+            }
+        }
+        break;
+    }
+    case 4:{
+        int dest = stoi(input.tok[1]);
+        char str[50];
+        if(!user[dest-1])
+            sprintf(str, "*** Error: user #%s does not exist yet. ***\n", input.tok[1].c_str());
+        else
+            sprintf(str, "*** %s told you ***: %s\n", clinfo_map[uid].name.c_str(), input.tok[2].c_str());
+        send(socket_map[dest], str, strlen(str), 0);
+        break;
+    }
+    case 5:{
+        string message = "***  yelled ***: ";
+        message.insert(4, clinfo_map[uid].name);
+        message += input.tok[1] + "\n";
+        broadcast(message);
+        break;
+    }
+    case 6:{
+        string name = input.tok[1];
+        string message;
+        char str[80];
+        bool exist = false;
+        for(int i=0; i<MAXUSERS;i++)
+            if(user[i])
+                if(name == clinfo_map[i+1].name) exist = true;
+        if(exist){
+            sprintf(str, "*** User ’%s’ already exists. ***\n", name.c_str());
+            send(socket_map[uid], str, strlen(str), 0);
+        }
+        else{
+            clinfo_map[uid].name = name;
+            sprintf(str, "*** User from %s:%d is named ’%s’. ***\n", clinfo_map[uid].ip.c_str(), clinfo_map[uid].port, name.c_str());
+            message = str;
+            broadcast(message);
+        }
+        break;
+    }
+    default:
+        return false;
+        break;
+    }
+    return true;    
+}
 void shell(string input_str, int uid){
     int i, IN = STDIN_FILENO, OUT = STDOUT_FILENO;
     setenv("PATH", "bin:.", 1);
-    update_execlist(getenv("PATH"));
-
-    cout<<"% "<<flush;
-    //getline(cin, input_str);
-    if(handle_builtin(input_str))
-        return;
     mode = parse_cmd(input_str);
-    if(count == 1)
-        last_cmdcntl(true, -1);
-    else{
-        pipe_control();
+    if(!handle_builtin(cmds[0], uid)){
+        if(count == 1)
+            last_cmdcntl(true, -1);
+        else{
+            pipe_control();
+        }
     }
     init();
-    
+    send(socket_map[uid], "% ", 2, 0);
+}
+inline void update_fdset(fd_set &fds){
+    FD_ZERO(&fds);
+    for(int i=0; i<MAXUSERS; i++){
+        if(user[i]){
+            FD_SET(socket_map[i+1], &fds);
+        }
+    }
 }
 
 int main(int argc, char* const argv[]){
@@ -436,13 +474,16 @@ int main(int argc, char* const argv[]){
     int msock = passivesock(port), ssock;
     struct sockaddr_in client_info;
     socklen_t addrlen;
-    bool user[MAXUSERS] = {false};
     string input_str;
+    const char *welcom = "***************************************\n** Welcome to the information server **\n***************************************\n";
+    char str[100];
 
     signal(SIGCHLD, reaper);
     FD_ZERO(&afds);
     FD_SET(msock, &afds);
     while(true){
+        update_fdset(afds);
+        FD_SET(msock, &afds);
         rfds = afds;
         if(select(nfds, &rfds, NULL, NULL, 0) < 0){
             fprintf(stderr, "select error : %s", strerror(errno));
@@ -450,23 +491,30 @@ int main(int argc, char* const argv[]){
         if(FD_ISSET(msock, &rfds)){
             addrlen = sizeof(client_info);
             ssock = accept(msock, (sockaddr*)&client_info, &addrlen);
-            if((uid = get_uid(user)) == -1){
+            if((uid = get_uid()) == -1){
                 cerr << "too much user";
-                continue;
+                continue;       //TODO
             }
             FD_SET(ssock, &afds);
-            struct cli_info info = {
+            clinfo_map[uid] = {
                 .name = "(no name)",
-                .ip = client_info.sin_addr.s_addr,
-                .port = client_info.sin_port
+                .ip = inet_ntoa(client_info.sin_addr),
+                .port = htons(client_info.sin_port)
             };
-            clinfo_map[uid] = &info;
+            socket_map[uid] = ssock;
+            uid_map[ssock] = uid;
+            send(ssock, welcom, strlen(welcom), 0);
+            sprintf(str, "*** User ’%s’ entered from %s:%d. ***\n", clinfo_map[uid].name.c_str(), 
+                                                                  clinfo_map[uid].ip.c_str(), clinfo_map[uid].port);
+            string mes = str;
+            broadcast(mes);
+            send(ssock, "% ", 2, 0);
         }
         for(int fd = 0; fd < nfds; fd++){
             if(FD_ISSET(fd, &rfds) && fd != msock){
                 char buf[MAXCMDLENG];
-                int num_data;
-                num_data = recv(fd, &buf, MAXCMDLENG, 0);
+                int num_data = recv(fd, &buf, MAXCMDLENG, 0);;
+                uid = uid_map[fd];
                 for(int i = 0; i<num_data ; i++){
                     if(buf[i] == '\n'){
                         printf("get cmd \"%s\" from uid %d\n", input_str.c_str(), uid);
@@ -478,6 +526,5 @@ int main(int argc, char* const argv[]){
                 input_str.clear();
             }
         }
-        
     }
 }
