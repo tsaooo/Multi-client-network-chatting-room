@@ -30,19 +30,20 @@ typedef struct token_list{
     int length;
 }token_list;
 
-typedef struct w_node{
+typedef struct npipe_info{
     int remain;
     int fd[2];
     int ch_count;
-}w_node;
+}npipe_info;
 
 struct cli_info{
     string name;
     string ip;
     in_port_t port;
+    vector<npipe_info> npipe_list;
 };
 
-vector <w_node> p_list;
+//vector <npipe_info> p_list;
 map <int, int> socket_map;
 map <int, int> uid_map;
 map <int, cli_info> clinfo_map;
@@ -52,21 +53,21 @@ bool user[MAXUSERS] = {false};
 token_list *cmds;
 int p1_fd[2], p2_fd[2], mode, count;
 
-void update_plist(){
-    vector <w_node>::iterator it = p_list.begin();
-    for(;it!=p_list.end(); it++)
+void update_plist(int uid){
+    vector <npipe_info>::iterator it = clinfo_map[uid].npipe_list.begin();
+    for(;it!=clinfo_map[uid].npipe_list.end(); it++)
         it->remain--;
 }
 
-int search_plist(int n){
-    for(int i=0;i < p_list.size(); i++)
-        if(p_list[i].remain == n)
+int search_plist(int n, int uid){
+    for(int i=0;i < clinfo_map[uid].npipe_list.size(); i++)
+        if(clinfo_map[uid].npipe_list[i].remain == n)
             return i;
     return -1;
 }
-void insert_plist(int n, int *f, int c){
-    w_node tmp = {n, f[0], f[1], c};
-    p_list.push_back(tmp);
+void insert_plist(int n, int *f, int c, int uid){
+    npipe_info tmp = {n, f[0], f[1], c};
+    clinfo_map[uid].npipe_list.push_back(tmp);
 }
 
 void split(string s, char delim, token_list *l){
@@ -196,31 +197,31 @@ int numpipe_parse(){
     return sum;
 }
 
-void last_cmdcntl(bool fst, pid_t lpid, int fd_in = STDIN_FILENO){
-    int n, index, inpipe_WRITE, out = STDOUT_FILENO, err = STDERR_FILENO, fd[2];
+void last_cmdcntl(int uid, bool fst, pid_t lpid, int fd_in = STDIN_FILENO){
+    int n, index, inpipe_WRITE, out = socket_map[uid], err = socket_map[uid], fd[2];
     int *last = fd, wait_count;
     pid_t cur_pid;
     bool PIPEIN = false, ign = false, merge = false;
 
     if(fst)
-        if((index = search_plist(0)) != -1){
-            wait_count = p_list.at(index).ch_count;
-            fd_in = p_list.at(index).fd[READ];
-            close(p_list.at(index).fd[WRITE]);
-            p_list.erase(p_list.begin()+index);
+        if((index = search_plist(0, uid)) != -1){
+            wait_count = clinfo_map[uid].npipe_list.at(index).ch_count;
+            fd_in = clinfo_map[uid].npipe_list.at(index).fd[READ];
+            close(clinfo_map[uid].npipe_list.at(index).fd[WRITE]);
+            clinfo_map[uid].npipe_list.erase(clinfo_map[uid].npipe_list.begin()+index);
             PIPEIN = true;
         }
     if(mode == ERRPIPE || mode == NUMPIPE){
         n = numpipe_parse();
         //n = stoi(cmds[count-1].tok[cmds[count-1].length]);
-        index = search_plist(n);
+        index = search_plist(n, uid);
         if(index != -1){
-            last = p_list.at(index).fd;
-            p_list.at(index).ch_count++;
+            last = clinfo_map[uid].npipe_list.at(index).fd;
+            clinfo_map[uid].npipe_list.at(index).ch_count++;
         }
         else{
             pipe(last);
-            insert_plist(n, last, 1);
+            insert_plist(n, last, 1, uid);
         }
     }
 
@@ -256,23 +257,23 @@ void last_cmdcntl(bool fst, pid_t lpid, int fd_in = STDIN_FILENO){
     }
 }
 
-void pipe_control(){
+void pipe_control(int uid){
     pid_t pid1, pid2;
     int *front_pipe = p1_fd, *end_pipe = p2_fd;
     int fd_in = STDIN_FILENO, inpipe_WRITE, index, i, n, wait_count;
     bool PIPEIN = false, ign = false;
     pipe(front_pipe);
     
-    if((index = search_plist(0)) != -1){
-        fd_in = p_list.at(index).fd[READ];
-        wait_count = p_list.at(index).ch_count;
-        close(p_list.at(index).fd[WRITE]);
-        p_list.erase(p_list.begin()+index);
+    if((index = search_plist(0, uid)) != -1){
+        fd_in = clinfo_map[uid].npipe_list.at(index).fd[READ];
+        wait_count = clinfo_map[uid].npipe_list.at(index).ch_count;
+        close(clinfo_map[uid].npipe_list.at(index).fd[WRITE]);
+        clinfo_map[uid].npipe_list.erase(clinfo_map[uid].npipe_list.begin()+index);
         PIPEIN = true;
     }
     if((pid1 = fork()) == 0){
         close(front_pipe[READ]);
-        run(cmds[0], fd_in, front_pipe[WRITE], STDERR_FILENO);
+        run(cmds[0], fd_in, front_pipe[WRITE], socket_map[uid]);
     }
     //parent wait all previous round hang childs
     else{
@@ -293,7 +294,7 @@ void pipe_control(){
         pipe(end_pipe);
         if((pid2 = fork()) == 0){
             close(end_pipe[READ]);
-            run(cmds[i], front_pipe[READ], end_pipe[WRITE], STDERR_FILENO);
+            run(cmds[i], front_pipe[READ], end_pipe[WRITE], socket_map[uid]);
         }
         else{
             close(front_pipe[READ]);
@@ -305,12 +306,12 @@ void pipe_control(){
         }
     }
     //if need to pipe stdout or stderr to next "n" line
-    last_cmdcntl(false, pid1, front_pipe[READ]);
+    last_cmdcntl(uid, false, pid1, fd_in = front_pipe[READ]);
 }
 
-void init(){
+void init(int uid){
     delete [] cmds;
-    update_plist();
+    update_plist(uid);
     p1_fd[WRITE] = 0;
     p1_fd[READ] = 0;
     p2_fd[WRITE] = 0;
@@ -356,18 +357,12 @@ bool handle_builtin(token_list input, int uid){
     int i=0;
     const string builtin_list[7] = {"setenv", "printenv", "exit", 
                               "who", "tell", "yell", "name"};
-    //token_list params;
-    //for(;i<7 && input.find(builtin_list[i])==string::npos; i++);
     for(;i<7 && input.tok[0] != builtin_list[i]; i++);
     switch(i){
     case 0:
-        //split(input, ' ', &params);
-        //setenvparams.tok[1].c_str(), params.tok[2].c_str(), 1);
         setenv(input.tok[1].c_str(), input.tok[2].c_str(), 1);
         break;
     case 1:
-        //split(input, ' ', &params);
-        //printf("%s\n",getenv(params.tok[1].c_str()));
         printf("%s\n",getenv(input.tok[1].c_str()));
         break;
     case 2:{
@@ -446,12 +441,12 @@ void shell(string input_str, int uid){
     mode = parse_cmd(input_str);
     if(!handle_builtin(cmds[0], uid)){
         if(count == 1)
-            last_cmdcntl(true, -1);
+            last_cmdcntl(uid, true, -1);
         else{
-            pipe_control();
+            pipe_control(uid);
         }
     }
-    init();
+    init(uid);
     send(socket_map[uid], "% ", 2, 0);
 }
 inline void update_fdset(fd_set &fds){
@@ -487,6 +482,7 @@ int main(int argc, char* const argv[]){
         rfds = afds;
         if(select(nfds, &rfds, NULL, NULL, 0) < 0){
             fprintf(stderr, "select error : %s", strerror(errno));
+            continue;
         }
         if(FD_ISSET(msock, &rfds)){
             addrlen = sizeof(client_info);
@@ -513,14 +509,18 @@ int main(int argc, char* const argv[]){
         for(int fd = 0; fd < nfds; fd++){
             if(FD_ISSET(fd, &rfds) && fd != msock){
                 char buf[MAXCMDLENG];
-                int num_data = recv(fd, &buf, MAXCMDLENG, 0);;
+                int num_data = recv(fd, &buf, MAXCMDLENG, 0);
                 uid = uid_map[fd];
                 for(int i = 0; i<num_data ; i++){
                     if(buf[i] == '\n'){
-                        printf("get cmd \"%s\" from uid %d\n", input_str.c_str(), uid);
-                        shell(input_str, uid);
+                        if(input_str.empty())
+                            cout << "get empty string";
+                        else{
+                            printf("get cmd \"%s\" from uid %d\n", input_str.c_str(), uid);
+                            shell(input_str, uid);
+                        }
                     }
-                    else
+                    else if(buf[i] != '\r')
                         input_str += buf[i];
                 }
                 input_str.clear();
