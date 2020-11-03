@@ -40,7 +40,8 @@ struct cli_info{
     string name;
     string ip;
     in_port_t port;
-    vector<npipe_info> npipe_list;
+    vector <npipe_info> npipe_list;
+    map <string, string> env_var;
 };
 
 //vector <npipe_info> p_list;
@@ -360,11 +361,15 @@ bool handle_builtin(token_list input, int uid){
     for(;i<7 && input.tok[0] != builtin_list[i]; i++);
     switch(i){
     case 0:
-        setenv(input.tok[1].c_str(), input.tok[2].c_str(), 1);
+        //setenv(input.tok[1].c_str(), input.tok[2].c_str(), 1);
+        clinfo_map[uid].env_var[input.tok[1]] = input.tok[2];
         break;
-    case 1:
-        printf("%s\n",getenv(input.tok[1].c_str()));
+    case 1:{
+        string var = clinfo_map[uid].env_var[input.tok[1]];
+        send(socket_map[uid], var.c_str(), var.length(), 0);
+        //printf("%s\n",getenv(input.tok[1].c_str()));
         break;
+    }
     case 2:{
         string message = "*** User '' left. ***\n";
         message.insert(10, clinfo_map[uid].name);
@@ -436,8 +441,10 @@ bool handle_builtin(token_list input, int uid){
     return true;    
 }
 void shell(string input_str, int uid){
-    int i, IN = STDIN_FILENO, OUT = STDOUT_FILENO;
-    setenv("PATH", "bin:.", 1);
+    //int i, IN = STDIN_FILENO, OUT = STDOUT_FILENO;
+    map<string, string>::iterator it;
+    for(it = clinfo_map[uid].env_var.begin(); it!= clinfo_map[uid].env_var.end(); it++){}
+        setenv(it->first.c_str(), it->second.c_str(), 1);
     mode = parse_cmd(input_str);
     if(!handle_builtin(cmds[0], uid)){
         if(count == 1)
@@ -491,12 +498,14 @@ int main(int argc, char* const argv[]){
                 cerr << "too much user";
                 continue;       //TODO
             }
+
             FD_SET(ssock, &afds);
             clinfo_map[uid] = {
                 .name = "(no name)",
                 .ip = inet_ntoa(client_info.sin_addr),
                 .port = htons(client_info.sin_port)
             };
+            clinfo_map[uid].env_var["PATH"] = "bin:.";
             socket_map[uid] = ssock;
             uid_map[ssock] = uid;
             send(ssock, welcom, strlen(welcom), 0);
