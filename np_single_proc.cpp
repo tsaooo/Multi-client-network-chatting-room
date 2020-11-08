@@ -1,10 +1,8 @@
 #include <iostream>
 #include <vector>
-#include <set>
 #include <map>
 #include <string.h>
 #include <unistd.h>
-#include <sys/types.h>
 #include <sys/wait.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -12,7 +10,6 @@
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <errno.h>
-#include <dirent.h>
 using namespace std;
 
 #define MAXCMDLENG 256
@@ -36,7 +33,6 @@ typedef struct token_list{
 typedef struct npipe_info{
     int remain;
     int fd[2];
-    int ch_count;
 }npipe_info;
 
 struct cli_info{
@@ -53,7 +49,7 @@ map <int, int> uid_map;
 map <int, cli_info> clinfo_map;
 bool user[MAXUSERS] = {false};
 vector <token_list> cmds;
-set <pid_t> pid_list;
+vector <pid_t> pid_list;
 
 int p1_fd[2], p2_fd[2], mode;
 
@@ -69,8 +65,8 @@ int search_plist(int n, int uid){
             return i;
     return -1;
 }
-void insert_plist(int n, int *f, int c, int uid){
-    npipe_info tmp = {n, f[0], f[1], c};
+void insert_plist(int n, int *f, int uid){
+    npipe_info tmp = {n, f[0], f[1]};
     clinfo_map[uid].npipe_list.push_back(tmp);
 }
 
@@ -228,7 +224,6 @@ int numpipe_parse(){
     int sum = 0;
     size_t pos1 = -1;
     size_t pos2;
-    //string exp = cmds[count-1].tok[cmds[count-1].length];
     string exp = cmds.back().tok[cmds.back().length];
     while((pos2 = exp.find('+', pos1+1)) != string::npos){
         sum += stoi(exp.substr(pos1+1, pos2 - pos1 - 1));
@@ -238,30 +233,19 @@ int numpipe_parse(){
     return sum;
 }
 
-void last_cmdcntl(int uid, bool fst, pid_t lpid, int fd_in = STDIN_FILENO){
-    int n, index, out = socket_map[uid], err = socket_map[uid], fd[2];
-    int *last = fd, wait_count;
+void last_cmdcntl(int uid, int fd_in = STDIN_FILENO){
+    int n, idx, out = socket_map[uid], err = socket_map[uid], fd[2];
+    int *last = fd;
     pid_t cur_pid;
-    bool PIPEIN = false, ign = false, merge = false;
 
-    if(fst)
-        if((index = search_plist(0, uid)) != -1){
-            wait_count = clinfo_map[uid].npipe_list.at(index).ch_count;
-            fd_in = clinfo_map[uid].npipe_list.at(index).fd[READ];
-            close(clinfo_map[uid].npipe_list.at(index).fd[WRITE]);
-            clinfo_map[uid].npipe_list.erase(clinfo_map[uid].npipe_list.begin()+index);
-            PIPEIN = true;
-        }
     if(mode == ERRPIPE || mode == NUMPIPE){
         n = numpipe_parse();
-        index = search_plist(n, uid);
-        if(index != -1){
-            last = clinfo_map[uid].npipe_list.at(index).fd;
-            clinfo_map[uid].npipe_list.at(index).ch_count++;
-        }
+        idx = search_plist(n, uid);
+        if(idx != -1)
+            last = clinfo_map[uid].npipe_list.at(idx).fd;
         else{
             pipe(last);
-            insert_plist(n, last, 1, uid);
+            insert_plist(n, last, uid);
         }
         out = last[WRITE];
         if(mode == ERRPIPE) err = out;
@@ -273,93 +257,80 @@ void last_cmdcntl(int uid, bool fst, pid_t lpid, int fd_in = STDIN_FILENO){
         clinfo_map[uid].upipe_map[dest][READ] = last[READ];
         clinfo_map[uid].upipe_map[dest][WRITE] = last[WRITE];
     }
-
-    if((cur_pid = fork()) == 0){
-        pid_list.insert(cur_pid);
+    while((cur_pid = fork()) < 0){
+        waitpid(-1, NULL, 0);
+        cout << "too much process, wait success";
+    }
+    if(cur_pid == 0){
         if(mode == OUTFILE){
             const char *fd_name = cmds.back().tok[cmds.back().length].c_str();
             out = open(fd_name, O_WRONLY | O_CREAT, 0666);
             ftruncate(out, 0); 
             lseek(out, 0, SEEK_SET); 
         }
-        else if(mode == ERRPIPE || mode == NUMPIPE || mode == USERPIPE) {
+        else if(mode == ERRPIPE || mode == NUMPIPE || mode == USERPIPE) 
             close(last[READ]);       
-            //out = last[WRITE];
-            //if(mode == ERRPIPE) err = out;
-        }
         else if(mode == LOST)
             out = open("/dev/null", O_WRONLY);
         run(cmds.back(), fd_in, out, err);
     }
     else{
+        if(mode != NUMPIPE && mode != ERRPIPE && mode != USERPIPE) pid_list.push_back(cur_pid);
         int p;
         if(fd_in != STDIN_FILENO) close(fd_in);
         if(mode == USERPIPE) close(out);
-        if(!fst) waitpid(lpid, NULL, 0);
-        else if(PIPEIN){
-            for (int i = 0; i < wait_count;){
-                
-                if((p = wait(NULL)) != cur_pid) i++;
-                else ign =true;
-            }
+
+        vector <pid_t> :: iterator it = pid_list.begin();
+        for(; it!=pid_list.end(); it++){
+            int STATUS;
+            if(waitpid(*it, &STATUS, 0) < 0)
+                printf("%s\n",strerror(errno));
+            else cout << *it << " wait success\n";
         }
-        if(mode != ERRPIPE && mode != NUMPIPE && !ign) waitpid(cur_pid, NULL, 0);
     }
 }
 
 void pipe_control(int uid, int fd_in = STDIN_FILENO){
     pid_t pid1, pid2;
     int *front_pipe = p1_fd, *end_pipe = p2_fd;
-    int inpipe_WRITE, index, i, n, wait_count;
-    bool PIPEIN = false, ign = false;
     pipe(front_pipe);
     
-    if((index = search_plist(0, uid)) != -1){
-        fd_in = clinfo_map[uid].npipe_list.at(index).fd[READ];
-        wait_count = clinfo_map[uid].npipe_list.at(index).ch_count;
-        close(clinfo_map[uid].npipe_list.at(index).fd[WRITE]);
-        clinfo_map[uid].npipe_list.erase(clinfo_map[uid].npipe_list.begin()+index);
-        PIPEIN = true;
-    }
     if((pid1 = fork()) == 0){
         close(front_pipe[READ]);
         run(cmds.front(), fd_in, front_pipe[WRITE], socket_map[uid]);
     }
     //parent wait all previous round hang childs
     else{
-        pid_list.insert(pid1);
+        pid_list.push_back(pid1);
         close(front_pipe[WRITE]);
         if(fd_in != STDIN_FILENO) close(fd_in);
-        if(PIPEIN){
-            for (int i = 0; i < wait_count;){
-                int p;
-                if((p = wait(NULL)) != pid1 )i++;
-                else ign = true;
-            }
-        }
     }
     for(int i = 1;i < cmds.size()-1; i++){
         //Pid1 --pipe1--> Pid2 --pipe2-->
         pipe(end_pipe);
-        if((pid2 = fork()) == 0){
+        while((pid2 = fork()) < 0){
+            waitpid(-1, NULL, 0);
+            cout << "too much process, wait success";
+        }
+        if(pid2 == 0){
             close(end_pipe[READ]);
             run(cmds.at(i), front_pipe[READ], end_pipe[WRITE], socket_map[uid]);
         }
         else{
-            pid_list.insert(pid2);
+            pid_list.push_back(pid2);
             close(front_pipe[READ]);
             close(end_pipe[WRITE]);
-            if(!ign) waitpid(pid1, NULL, 0);
             swap(front_pipe, end_pipe);
             swap(pid1, pid2);
         }
     }
-    last_cmdcntl(uid, false, pid1, front_pipe[READ]);
+    last_cmdcntl(uid, front_pipe[READ]);
 }
 
 void init(int uid){
     cmds.clear();
     update_plist(uid);
+    pid_list.clear();
     p1_fd[WRITE] = 0;
     p1_fd[READ] = 0;
     p2_fd[WRITE] = 0;
@@ -384,8 +355,7 @@ int passivesock(int p){
 void reaper(int a){
     pid_t pid;
     while((pid = waitpid(-1, NULL, WNOHANG)) > 0){
-        pid_list.erase(pid);
-        std::cerr << "reap success\n";
+        std::cout << pid << " reap success\n";
     }
 }
 inline int get_uid(){
@@ -518,7 +488,7 @@ bool handle_builtin(token_list input, int uid){
 
 void shell(string input_str, int uid){
     int IN = STDIN_FILENO, OUT = STDOUT_FILENO;
-    int source = -1;
+    int source = -1, npipe_idx;
     map<string, string>::iterator it;
     for(it = clinfo_map[uid].env_var.begin(); it!= clinfo_map[uid].env_var.end(); it++)
         setenv(it->first.c_str(), it->second.c_str(), 1);
@@ -544,6 +514,13 @@ void shell(string input_str, int uid){
             clinfo_map[source].upipe_map.erase(uid);
         }
     }
+
+    if((npipe_idx = search_plist(0, uid)) != -1){
+        IN = clinfo_map[uid].npipe_list.at(npipe_idx).fd[READ];
+        close(clinfo_map[uid].npipe_list.at(npipe_idx).fd[WRITE]);
+        clinfo_map[uid].npipe_list.erase(clinfo_map[uid].npipe_list.begin()+npipe_idx);
+    }
+
     if(mode == USERPIPE){
         char str[150];
         int dest = stoi(cmds.back().tok[cmds.back().length]);
@@ -566,7 +543,7 @@ void shell(string input_str, int uid){
     }
     if(!handle_builtin(cmds.front(), uid)){
         if(cmds.size() == 1)
-            last_cmdcntl(uid, true, -1, IN);
+            last_cmdcntl(uid, IN);
         else{
             pipe_control(uid, IN);
         }
@@ -598,7 +575,7 @@ int main(int argc, char* const argv[]){
     const char *welcom = "***************************************\n** Welcome to the information server **\n***************************************\n";
     char str[100];
 
-    //signal(SIGCHLD, reaper);
+    signal(SIGCHLD, reaper);
     FD_ZERO(&afds);
     FD_SET(msock, &afds);
     while(true){
@@ -607,8 +584,8 @@ int main(int argc, char* const argv[]){
         rfds = afds;
         if(select(nfds, &rfds, NULL, NULL, 0) < 0){
             fprintf(stderr, "select error : %s\n", strerror(errno));
-
-            exit(0);
+            if(errno == EINTR) continue;
+            else exit(0);
         }
         if(FD_ISSET(msock, &rfds)){
             addrlen = sizeof(client_info);
@@ -638,8 +615,11 @@ int main(int argc, char* const argv[]){
             if(FD_ISSET(fd, &rfds) && fd != msock){
                 char buf[MAXCMDLENG];
                 int num_data;
-                if((num_data = recv(fd, &buf, MAXCMDLENG, 0)) < 0)
+                if((num_data = recv(fd, &buf, MAXCMDLENG, 0)) < 0){
                     fprintf(stderr, "recv error: %s\n", strerror(errno));
+                    if(errno == EINTR) continue;
+                    else exit(0);
+                }
                 uid = uid_map[fd];
                 for(int i = 0; i<num_data ; i++){
                     if(buf[i] == '\n'){
