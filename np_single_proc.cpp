@@ -48,7 +48,6 @@ struct cli_info{
     map <string, string> env_var;
 };
 
-//vector <npipe_info> p_list;
 map <int, int> socket_map;
 map <int, int> uid_map;
 map <int, cli_info> clinfo_map;
@@ -344,7 +343,6 @@ void pipe_control(int uid, int fd_in = STDIN_FILENO){
         pipe(end_pipe);
         if((pid2 = fork()) == 0){
             close(end_pipe[READ]);
-            //run(cmds[i], front_pipe[READ], end_pipe[WRITE], socket_map[uid]);
             run(cmds.at(i), front_pipe[READ], end_pipe[WRITE], socket_map[uid]);
         }
         else{
@@ -354,14 +352,12 @@ void pipe_control(int uid, int fd_in = STDIN_FILENO){
             if(!ign) waitpid(pid1, NULL, 0);
             swap(front_pipe, end_pipe);
             swap(pid1, pid2);
-            //pipe(end_pipe);
         }
     }
     last_cmdcntl(uid, false, pid1, front_pipe[READ]);
 }
 
 void init(int uid){
-    //delete [] cmds;
     cmds.clear();
     update_plist(uid);
     p1_fd[WRITE] = 0;
@@ -421,7 +417,7 @@ void clear_pipe(int uid){
     for(it2 = clinfo_map[uid].npipe_list.begin(); it2!=clinfo_map[uid].npipe_list.end(); it2++){
         close(it2->fd[READ]);
         close(it2->fd[WRITE]);
-    }
+    } 
     clinfo_map[uid].upipe_map.clear();
     clinfo_map[uid].npipe_list.clear();
 }
@@ -443,7 +439,6 @@ bool handle_builtin(token_list input, int uid){
     case 2:{
         string message = "*** User '' left. ***\n";
         message.insert(10, clinfo_map[uid].name);
-        //may need clear clinfo_map[uid]
         user[uid-1] = false;
         close(socket_map[uid]);
         uid_map.erase(socket_map[uid]);
