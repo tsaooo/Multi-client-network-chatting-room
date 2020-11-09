@@ -138,9 +138,25 @@ inline bool is_userpipeIN(string cmd, size_t &pos, int &len){
 
 int parse_cmd(string input, int &upipe_number){      
     size_t pos;
-    token_list unsplit_cmds;
+    token_list unsplit_cmds, cmd;
     int n, len;
     bool npipe = true, out_redir = false, errpipe = false, upipeout = false, upipe_in = false;
+    
+    if((pos = input.find("tell"))){
+        cmd.tok[0] = "tell";
+        cmd.tok[1] = input[5];
+        cmd.tok[2] = input.substr(7);
+        cmd.length = 3;
+        cmds.push_back(cmd);
+        return NORMAL;
+    }
+    if(input.find("yell")){
+        cmd.tok[0] = "yell";
+        cmd.tok[1] = input.substr(5);
+        cmd.length = 2;
+        cmds.push_back(cmd);
+        return NORMAL;
+    }
 
     split(input, '|', &unsplit_cmds);
     n = unsplit_cmds.length;
@@ -158,7 +174,6 @@ int parse_cmd(string input, int &upipe_number){
         unsplit_cmds.tok[n-1].erase(pos, 1);
     if(( npipe = is_numpipe(unsplit_cmds.tok[n-1], &pos) ))
         n -= 1;
-    token_list cmd;
     
     for(int i=0; i<n; i++){
         split(unsplit_cmds.tok[i], ' ', &cmd);
@@ -434,9 +449,6 @@ bool handle_builtin(token_list input, int uid){
         break;
     }
     case 4:{
-        for(int i=3;i<input.length; i++)
-            input.tok[2] += ' ' + input.tok[i];
-        input.length = 3;
         int dest = stoi(input.tok[1]);
         char str[1100];
         if(!user[dest-1]){
@@ -450,9 +462,6 @@ bool handle_builtin(token_list input, int uid){
         break;
     }
     case 5:{
-        for(int i=2;i<input.length; i++)
-            input.tok[1] += ' ' + input.tok[i];
-        input.length = 2;
         string message = "***  yelled ***: ";
         message.insert(4, clinfo_map[uid].name);
         message += input.tok[1] + "\n";
