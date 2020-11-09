@@ -295,7 +295,7 @@ void reaper(int a){
 bool handle_builtin(token_list input){
     int i=0;
     const string builtin_list[3] = {"setenv", "printenv", "exit"};
-    for(;i<7 && input.tok[0] != builtin_list[i]; i++);
+    for(;i<3 && input.tok[0] != builtin_list[i]; i++);
     switch(i){
     case 0:
         setenv(input.tok[1].c_str(), input.tok[2].c_str(), 1);
