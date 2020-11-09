@@ -140,7 +140,7 @@ int parse_cmd(string input, int &upipe_number){
     size_t pos;
     token_list unsplit_cmds;
     int n, len;
-    bool npipe = true, out_redir = false, errpipe = false, upipeout = false, upipe_in;
+    bool npipe = true, out_redir = false, errpipe = false, upipeout = false, upipe_in = false;
 
     split(input, '|', &unsplit_cmds);
     n = unsplit_cmds.length;
