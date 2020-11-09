@@ -581,7 +581,7 @@ int main(int argc, char* const argv[]){
         FD_SET(msock, &afds);
         rfds = afds;
         if(select(nfds, &rfds, NULL, NULL, 0) < 0){
-            fprintf(stderr, "select error : %s\n", strerror(errno));
+            //fprintf(stderr, "select error : %s\n", strerror(errno));
             if(errno == EINTR) continue;
             else exit(0);
         }
@@ -621,10 +621,10 @@ int main(int argc, char* const argv[]){
                 uid = uid_map[fd];
                 for(int i = 0; i<num_data ; i++){
                     if(buf[i] == '\n'){
-                        if(input_str.empty())
-                            cout << "get empty string";
+                        if(input_str.empty());
+                            //cout << "get empty string";
                         else{
-                            printf("get cmd \"%s\" from uid %d\n", input_str.c_str(), uid);
+                            //printf("get cmd \"%s\" from uid %d\n", input_str.c_str(), uid);
                             shell(input_str, uid);
                         }
                     }
