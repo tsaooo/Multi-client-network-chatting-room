@@ -439,11 +439,14 @@ bool handle_builtin(token_list input, int uid){
         input.length = 3;
         int dest = stoi(input.tok[1]);
         char str[1100];
-        if(!user[dest-1])
+        if(!user[dest-1]){
             sprintf(str, "*** Error: user #%d does not exist yet. ***\n", dest);
-        else
+            send(socket_map[uid], str, strlen(str), 0);
+        }
+        else{
             sprintf(str, "*** %s told you ***: %s\n", clinfo_map[uid].name.c_str(), input.tok[2].c_str());
-        send(socket_map[dest], str, strlen(str), 0);
+            send(socket_map[dest], str, strlen(str), 0);
+        }
         break;
     }
     case 5:{
@@ -468,12 +471,12 @@ bool handle_builtin(token_list input, int uid){
                     break;
                 }
         if(exist){
-            sprintf(str, "*** User ’%s’ already exists. ***\n", name.c_str());
+            sprintf(str, "*** User '%s' already exists. ***\n", name.c_str());
             send(socket_map[uid], str, strlen(str), 0);
         }
         else{
             clinfo_map[uid].name = name;
-            sprintf(str, "*** User from %s:%d is named ’%s’. ***\n", clinfo_map[uid].ip.c_str(), clinfo_map[uid].port, name.c_str());
+            sprintf(str, "*** User from %s:%d is named '%s'. ***\n", clinfo_map[uid].ip.c_str(), clinfo_map[uid].port, name.c_str());
             message = str;
             broadcast(message);
         }
@@ -506,7 +509,7 @@ void shell(string input_str, int uid){
             IN = open("/dev/null", O_RDONLY);
         }
         else{
-            sprintf(str, "*** %s (#%d) just received from %s (#%d) by ’%s’ ***\n"
+            sprintf(str, "*** %s (#%d) just received from %s (#%d) by '%s' ***\n"
                     , clinfo_map[uid].name.c_str(), uid, clinfo_map[source].name.c_str(), source, input_str.c_str());
             string mes = str;
             broadcast(mes);
@@ -535,7 +538,7 @@ void shell(string input_str, int uid){
             mode = LOST;
         }
         else{
-            sprintf(str, "*** %s (#%d) just piped ’%s’ to %s (#%d) ***\n"
+            sprintf(str, "*** %s (#%d) just piped '%s' to %s (#%d) ***\n"
                     , clinfo_map[uid].name.c_str(), uid, input_str.c_str(), clinfo_map[dest].name.c_str(), dest);
             string mes = str;
             broadcast(mes);
@@ -572,7 +575,7 @@ int main(int argc, char* const argv[]){
     struct sockaddr_in client_info;
     socklen_t addrlen;
     string input_str;
-    const char *welcom = "***************************************\n** Welcome to the information server **\n***************************************\n";
+    const char *welcom = "***************************************\n** Welcome to the information server. **\n***************************************\n";
     char str[100];
 
     signal(SIGCHLD, reaper);
@@ -605,7 +608,7 @@ int main(int argc, char* const argv[]){
             socket_map[uid] = ssock;
             uid_map[ssock] = uid;
             send(ssock, welcom, strlen(welcom), 0);
-            sprintf(str, "*** User ’%s’ entered from %s:%d. ***\n", clinfo_map[uid].name.c_str(), 
+            sprintf(str, "*** User '%s' entered from %s:%d. ***\n", clinfo_map[uid].name.c_str(), 
                                                                   clinfo_map[uid].ip.c_str(), clinfo_map[uid].port);
             string mes = str;
             broadcast(mes);
