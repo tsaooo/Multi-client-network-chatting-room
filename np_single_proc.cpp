@@ -259,7 +259,7 @@ void last_cmdcntl(int uid, int fd_in = STDIN_FILENO){
     }
     while((cur_pid = fork()) < 0){
         waitpid(-1, NULL, 0);
-        cout << "too much process, wait success";
+        //cout << "too much process, wait success";
     }
     if(cur_pid == 0){
         if(mode == OUTFILE){
@@ -283,9 +283,7 @@ void last_cmdcntl(int uid, int fd_in = STDIN_FILENO){
         vector <pid_t> :: iterator it = pid_list.begin();
         for(; it!=pid_list.end(); it++){
             int STATUS;
-            if(waitpid(*it, &STATUS, 0) < 0)
-                printf("%s\n",strerror(errno));
-            else cout << *it << " wait success\n";
+            waitpid(*it, &STATUS, 0);
         }
     }
 }
@@ -310,7 +308,7 @@ void pipe_control(int uid, int fd_in = STDIN_FILENO){
         pipe(end_pipe);
         while((pid2 = fork()) < 0){
             waitpid(-1, NULL, 0);
-            cout << "too much process, wait success";
+            //cout << "too much process, wait success";
         }
         if(pid2 == 0){
             close(end_pipe[READ]);
@@ -355,7 +353,7 @@ int passivesock(int p){
 void reaper(int a){
     pid_t pid;
     while((pid = waitpid(-1, NULL, WNOHANG)) > 0){
-        std::cout << pid << " reap success\n";
+        //std::cout << pid << " reap success\n";
     }
 }
 inline int get_uid(){
@@ -616,7 +614,7 @@ int main(int argc, char* const argv[]){
                 char buf[MAXCMDLENG];
                 int num_data;
                 if((num_data = recv(fd, &buf, MAXCMDLENG, 0)) < 0){
-                    fprintf(stderr, "recv error: %s\n", strerror(errno));
+                    //fprintf(stderr, "recv error: %s\n", strerror(errno));
                     if(errno == EINTR) continue;
                     else exit(0);
                 }
