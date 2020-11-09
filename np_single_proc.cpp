@@ -142,7 +142,7 @@ int parse_cmd(string input, int &upipe_number){
     int n, len;
     bool npipe = true, out_redir = false, errpipe = false, upipeout = false, upipe_in = false;
     
-    if((pos = input.find("tell"))){
+    if((pos = input.find("tell")) != string::npos){
         cmd.tok[0] = "tell";
         cmd.tok[1] = input[5];
         cmd.tok[2] = input.substr(7);
@@ -150,7 +150,7 @@ int parse_cmd(string input, int &upipe_number){
         cmds.push_back(cmd);
         return NORMAL;
     }
-    if(input.find("yell")){
+    if(input.find("yell") != string::npos){
         cmd.tok[0] = "yell";
         cmd.tok[1] = input.substr(5);
         cmd.length = 2;
@@ -238,7 +238,7 @@ void run(token_list cmd, int fd_in, int out, int err){
 int numpipe_parse(){
     int sum = 0;
     size_t pos1 = -1;
-    size_t pos2;
+    size_t pos2 = -1;
     string exp = cmds.back().tok[cmds.back().length];
     while((pos2 = exp.find('+', pos1+1)) != string::npos){
         sum += stoi(exp.substr(pos1+1, pos2 - pos1 - 1));
