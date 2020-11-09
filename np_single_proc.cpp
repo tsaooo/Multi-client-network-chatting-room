@@ -575,7 +575,7 @@ int main(int argc, char* const argv[]){
     struct sockaddr_in client_info;
     socklen_t addrlen;
     string input_str;
-    const char *welcom = "***************************************\n** Welcome to the information server. **\n***************************************\n";
+    const char *welcom = "****************************************\n** Welcome to the information server. **\n****************************************\n";
     char str[100];
 
     signal(SIGCHLD, reaper);
@@ -616,9 +616,9 @@ int main(int argc, char* const argv[]){
         }
         for(int fd = 0; fd < nfds; fd++){
             if(FD_ISSET(fd, &rfds) && fd != msock){
-                char buf[MAXCMDLENG];
+                char buf[MAXINLENG];
                 int num_data;
-                if((num_data = recv(fd, &buf, MAXCMDLENG, 0)) < 0){
+                if((num_data = recv(fd, &buf, MAXINLENG, 0)) < 0){
                     //fprintf(stderr, "recv error: %s\n", strerror(errno));
                     if(errno == EINTR) continue;
                     else exit(0);

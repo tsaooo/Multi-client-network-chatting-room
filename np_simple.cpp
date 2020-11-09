@@ -321,9 +321,9 @@ void shell(){
     string input_str;
 
     while(true){
-        char buf[MAXCMDLENG];
+        char buf[MAXINLENG];
         cout << "% " << flush;
-        if((num_data = read(STDIN_FILENO, &buf, MAXCMDLENG)) < 0){
+        if((num_data = read(STDIN_FILENO, &buf, MAXINLENG)) < 0){
             fprintf(stderr, "read error: %s\n", strerror(errno));
             if(errno == EINTR);
             else exit(0);
