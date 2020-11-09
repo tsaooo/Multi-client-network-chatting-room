@@ -345,7 +345,9 @@ int passivesock(int p){
     info.sin_port = htons((u_short)p);
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if(sockfd == -1) std::cerr << "create socket fail";
-
+    int enable = 1;
+    if(setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int)) < 0 )
+        cerr << strerror(errno);
     bind(sockfd, (struct sockaddr *)&info, sizeof(info));
     listen(sockfd, 30);
     return sockfd;
