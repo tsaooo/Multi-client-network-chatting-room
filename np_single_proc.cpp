@@ -26,7 +26,7 @@ using namespace std;
 #define READ 0
 
 typedef struct token_list{
-    string tok[1000];
+    string tok[2000];
     int length;
 }token_list;
 
@@ -144,8 +144,9 @@ int parse_cmd(string input, int &upipe_number){
     
     if((pos = input.find("tell")) != string::npos){
         cmd.tok[0] = "tell";
-        cmd.tok[1] = input[5];
-        cmd.tok[2] = input.substr(7);
+        pos = input.find(' ', 5);
+        cmd.tok[1] = input.substr(5,pos - 5);
+        cmd.tok[2] = input.substr(pos+1);
         cmd.length = 3;
         cmds.push_back(cmd);
         return NORMAL;
@@ -176,8 +177,9 @@ int parse_cmd(string input, int &upipe_number){
         n -= 1;
     
     for(int i=0; i<n; i++){
-        split(unsplit_cmds.tok[i], ' ', &cmd);
-        cmds.push_back(cmd);
+        token_list command;
+        split(unsplit_cmds.tok[i], ' ', &command);
+        cmds.push_back(command);
     }
     if(upipe_in) cmds.front().length--;
     if(npipe){
@@ -274,7 +276,7 @@ void last_cmdcntl(int uid, int fd_in = STDIN_FILENO){
     }
     while((cur_pid = fork()) < 0){
         waitpid(-1, NULL, 0);
-        //cout << "too much process, wait success";
+        cout << "too much process, wait success\n";
     }
     if(cur_pid == 0){
         if(mode == OUTFILE){
@@ -323,7 +325,7 @@ void pipe_control(int uid, int fd_in = STDIN_FILENO){
         pipe(end_pipe);
         while((pid2 = fork()) < 0){
             waitpid(-1, NULL, 0);
-            //cout << "too much process, wait success";
+            cout << "too much process, wait success\n";
         }
         if(pid2 == 0){
             close(end_pipe[READ]);
@@ -369,9 +371,7 @@ int passivesock(int p){
 }
 void reaper(int a){
     pid_t pid;
-    while((pid = waitpid(-1, NULL, WNOHANG)) > 0){
-        //std::cout << pid << " reap success\n";
-    }
+    while((pid = waitpid(-1, NULL, WNOHANG)) > 0);
 }
 inline int get_uid(){
     for(int i = 0; i<MAXUSERS; i++)
@@ -396,9 +396,9 @@ void clear_pipe(int uid){
         }
     map <int, int[2]>:: iterator it;
     vector <npipe_info>:: iterator it2;
-    for(it = clinfo_map[uid].upipe_map.begin(); it!=clinfo_map[uid].upipe_map.end(); it++){
-        close(it->second[READ]);
-    }
+    for(it = clinfo_map[uid].upipe_map.begin(); it!=clinfo_map[uid].upipe_map.end(); it++)
+        if(it->second[READ] != 0)
+            close(it->second[READ]);
     for(it2 = clinfo_map[uid].npipe_list.begin(); it2!=clinfo_map[uid].npipe_list.end(); it2++){
         close(it2->fd[READ]);
         close(it2->fd[WRITE]);
@@ -505,6 +505,7 @@ void shell(string input_str, int uid){
     for(it = clinfo_map[uid].env_var.begin(); it!= clinfo_map[uid].env_var.end(); it++)
         setenv(it->first.c_str(), it->second.c_str(), 1);
     mode = parse_cmd(input_str, source);
+
     if(source != -1){
         char str[150];
         if(!user[source-1]){
@@ -536,6 +537,7 @@ void shell(string input_str, int uid){
     if(mode == USERPIPE){
         char str[150];
         int dest = stoi(cmds.back().tok[cmds.back().length]);
+
         if(!user[dest-1]){
             sprintf(str, "*** Error: user #%d does not exist yet. ***\n", dest);
             send(socket_map[uid], str, strlen(str), 0);
@@ -635,10 +637,10 @@ int main(int argc, char* const argv[]){
                 uid = uid_map[fd];
                 for(int i = 0; i<num_data ; i++){
                     if(buf[i] == '\n'){
-                        if(input_str.empty());
-                            //cout << "get empty string";
+                        if(input_str.empty())
+                            cout << "get empty string";
                         else{
-                            //printf("get cmd \"%s\" from uid %d\n", input_str.c_str(), uid);
+                            printf("get cmd \"%s\" from uid %d\n", input_str.c_str(), uid);
                             shell(input_str, uid);
                         }
                     }

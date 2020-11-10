@@ -22,7 +22,7 @@ using namespace std;
 #define READ 0
 
 typedef struct token_list{
-    string tok[1000];
+    string tok[2000];
     int length;
 }token_list;
 
@@ -114,8 +114,9 @@ int parse_cmd(string input){
     token_list cmd;
     
     for(int i=0; i<n; i++){
-        split(unsplit_cmds.tok[i], ' ', &cmd);
-        cmds.push_back(cmd);
+        token_list command;
+        split(unsplit_cmds.tok[i], ' ', &command);
+        cmds.push_back(command);
     }
     if(npipe){
         cmds.back().tok[cmds.back().length] = unsplit_cmds.tok[n];
