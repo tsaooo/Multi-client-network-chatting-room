@@ -500,6 +500,7 @@ bool handle_builtin(token_list input, int uid){
             guser.push_back(n);
         }
         group_map[input.tok[1]] = guser;
+        return true;
     }
     case 8:{
         string gname = input.tok[1];
@@ -517,6 +518,7 @@ bool handle_builtin(token_list input, int uid){
             if(user[*it])
                 send(socket_map[*it], input.tok[2].c_str(), input.tok[2].length(), 0);
         }
+        return true;
     }
     default:
         return false;
