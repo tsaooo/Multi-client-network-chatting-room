@@ -39,11 +39,13 @@ struct cli_info{
     string name;
     string ip;
     in_port_t port;
+    int g_num;
     vector <npipe_info> npipe_list;
     map <int, int[2]> upipe_map;
     map <string, string> env_var;
 };
 
+map <string, vector<int>> group_map;
 map <int, int> socket_map;
 map <int, int> uid_map;
 map <int, cli_info> clinfo_map;
@@ -409,9 +411,9 @@ void clear_pipe(int uid){
 
 bool handle_builtin(token_list input, int uid){
     int i=0;
-    const string builtin_list[7] = {"setenv", "printenv", "exit", 
-                              "who", "tell", "yell", "name"};
-    for(;i<7 && input.tok[0] != builtin_list[i]; i++);
+    const string builtin_list[9] = {"setenv", "printenv", "exit", 
+                              "who", "tell", "yell", "name", group, grouptell};
+    for(;i<9 && input.tok[0] != builtin_list[i]; i++);
     switch(i){
     case 0:
         clinfo_map[uid].env_var[input.tok[1]] = input.tok[2];
@@ -490,6 +492,31 @@ bool handle_builtin(token_list input, int uid){
             broadcast(message);
         }
         break;
+    }
+    case 7:{
+        vector <int> guser;
+        for(int i =2; i<input.length; i++){
+            int n = stoi(input.tok[i]);
+            guser.push_back(n);
+        }
+        group_map[input.tok[1]] = guser;
+    }
+    case 8:{
+        string gname = input.tok[1];
+        vector <int>::iterator it = group_map[gname].begin();
+        bool exist;
+        for(; it!= group_map[gname].end(); it++)
+            if(*it == uid) exist = true;
+        if(!exist){
+            char str[50];
+            sprintf(str, "Error: you are not in %s", gname);
+            send(socket_map[uid], str, strlen(str), 0);
+        }
+        vector <int>::iterator it2 = group_map[gname].begin()
+        for(; it2!= group_map[gname].end(); it2++){
+            if(user[*it])
+                send(socket_map[*it], input.tok[2].c_str(), input.tok[2].length, 0);
+        }
     }
     default:
         return false;
